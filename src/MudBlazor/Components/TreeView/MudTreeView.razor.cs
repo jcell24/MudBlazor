@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop;
 using MudBlazor.Extensions;
 using MudBlazor.State;
 using MudBlazor.Utilities;
@@ -45,6 +46,14 @@ namespace MudBlazor
                 .WithChangeHandler(OnParameterChangedAsync);
             _selection = new();
         }
+
+        //private bool _canDrop = false;
+        //private bool _dragInProgress = false;
+        [Inject] private IJSRuntime JsRuntime { get; set; } = null!;
+
+        internal MudTreeViewItem<T>? DraggedItem { get; set; } = null;
+        internal MudTreeViewItem<T>? TargetItem { get; set; } = null;
+        internal DropPosition? Position { get; set; } = null;
 
         private readonly ParameterState<T?> _selectedValueState;
         private readonly ParameterState<IReadOnlyCollection<T>?> _selectedValuesState;
@@ -94,6 +103,18 @@ namespace MudBlazor
         [Parameter]
         [Category(CategoryTypes.TreeView.Selecting)]
         public Color CheckBoxColor { get; set; }
+
+        [Parameter]
+        public bool DragEnabled { get; set; } = false;
+
+        [Parameter]
+        public bool RootDragEnabled { get; set; } = false;
+
+        [Parameter]
+        public Func<MudTreeViewItem<T>, MudTreeViewItem<T>, DropPosition, bool>? DragValidator { get; set; }
+
+        [Parameter]
+        public Action<MudTreeViewItem<T>, MudTreeViewItem<T>, DropPosition>? DropFunction { get; set; }
 
         /// <summary>
         /// Controls how many items can be selected at one time.
@@ -685,5 +706,296 @@ namespace MudBlazor
             return values;
         }
 
+        internal void OnDragStart(MudTreeViewItem<T> item)
+        {
+            DraggedItem = item;
+            StateHasChanged();
+        }
+
+        internal void OnDragEnter(MudTreeViewItem<T> item)
+        {
+            TargetItem = item;
+            StateHasChanged();
+        }
+
+        //internal void OnDragOver(DropPosition position)
+        //{
+        //    if (DraggedItem is not null && TargetItem is not null)
+        //    {
+        //        _canDrop = CheckIfDropIsAllowed(DraggedItem, TargetItem, position);
+        //        Position = position;
+        //        StateHasChanged();
+        //    }
+        //}
+
+        //internal void OnDrop()
+        //{
+        //    if (DraggedItem is null || TargetItem is null || Position is null || ReferenceEquals(DraggedItem, TargetItem)) return;
+
+        //    if (_canDrop)
+        //    {
+        //        var updatedItems = MoveItem(DraggedItem, TargetItem, (DropPosition)Position);
+
+        //        if (MudTreeRoot.Items != updatedItems)
+        //        {
+        //            MudTreeRoot.Items = updatedItems.ToList();
+        //            DropFunction?.Invoke(DraggedItem, TargetItem, (DropPosition)Position);
+        //        }
+        //    }
+
+        //    DraggedItem = default;
+        //    TargetItem = default;
+        //    Position = null;
+        //    StateHasChanged();
+        //}
+
+        //private bool CheckIfDropIsAllowed(MudTreeViewItem<T> draggedItem, MudTreeViewItem<T> targetItem, DropPosition position)
+        //{
+        //    if (draggedItem == targetItem)
+        //    {
+        //        return false; // Cannot drop onto itself
+        //    }
+
+        //    return DragValidator?.Invoke(draggedItem, targetItem, position) is false
+        //        ? false
+        //        : CheckIsDescendant(draggedItem, targetItem) is false;
+
+        //    static bool CheckIsDescendant(MudTreeViewItem<T> draggedItem, MudTreeViewItem<T> targetItem)
+        //    {
+        //        if (draggedItem is not null)
+        //        {
+        //            if (draggedItem.HasChildren())
+        //            {
+        //                foreach (MudTreeViewItem<T> child in draggedItem.ChildItems)
+        //                {
+        //                    if (ReferenceEquals(child, targetItem))
+        //                    {
+        //                        return true;
+        //                    }
+
+        //                    if (CheckIsDescendant(child, targetItem))
+        //                    {
+        //                        return true;
+        //                    }
+        //                }
+        //            }
+        //        }
+
+        //        return false;
+        //    }
+        //}
+
+        //private List<TreeItemData<T>> MoveItem(MudTreeViewItem<T> DraggedItem, MudTreeViewItem<T> TargetItem, DropPosition Position)
+        //{
+        //    List<TreeItemData<T>> treeItems;
+        //    if (MudTreeRoot.Items != null)
+        //    {
+        //        treeItems = MudTreeRoot.Items.ToList();
+        //    }
+        //    else
+        //    {
+        //        throw new InvalidOperationException("Cannot move item when the tree view's Items parameter is null.");
+        //    }
+
+        //    TreeItemData<T>? item;
+        //    var targetIdx = -1;
+
+        //    // Remove the dragged item from its current location
+        //    if (DraggedItem.Parent is null) // Parent is not root
+        //    {
+        //        item = DraggedItem.Value is null
+        //            ? treeItems?.FirstOrDefault(x => Equals(x.Text, DraggedItem.Text))
+        //            : treeItems?.FirstOrDefault(x => Equals(x.Value, DraggedItem.Value));
+
+        //        List<TreeItemData<T>> updatedItems = [.. treeItems!];
+        //        updatedItems.RemoveAt(updatedItems.FindIndex(x => ReferenceEquals(x, item)));
+
+        //        treeItems = updatedItems;
+        //    }
+        //    else
+        //    {
+        //        item = DraggedItem.Value is null
+        //            ? DraggedItem.Parent.GetItems()
+        //                .FirstOrDefault(x => Equals(x.Text, DraggedItem.Text))
+        //            : DraggedItem.Parent.GetItems()
+        //                .FirstOrDefault(x => Equals(x.Value, DraggedItem.Value));
+
+        //        if (DraggedItem.Parent.Parent is not null)
+        //        {
+        //            TreeItemData<T>? oldParent = DraggedItem.Parent.Parent.GetItems()
+        //                .FirstOrDefault(x => Equals(x.Value, DraggedItem.Parent.Value));
+        //            oldParent?.Children?.RemoveAt(oldParent.Children.FindIndex(x => ReferenceEquals(x, item)));
+        //        }
+        //        else // Parent.Parent is root
+        //        {
+        //            if (DraggedItem.Parent.Value is null)
+        //            {
+        //                TreeItemData<T>? oldParent = treeItems?
+        //                    .FirstOrDefault(x => Equals(x.Text, DraggedItem.Parent.Text));
+        //                oldParent?.Children?.RemoveAt(
+        //                    oldParent.Children.FindIndex(x => ReferenceEquals(x, item)));
+        //            }
+        //            else
+        //            {
+        //                TreeItemData<T>? oldParent = treeItems?
+        //                    .FirstOrDefault(x => Equals(x.Value, DraggedItem.Parent.Value));
+        //                oldParent?.Children?.RemoveAt(
+        //                    oldParent.Children.FindIndex(x => ReferenceEquals(x, item)));
+        //            }
+        //        }
+        //    }
+
+        //    // Add the dragged item to its new location
+        //    if (Position == DropPosition.Before || Position == DropPosition.After)
+        //    {
+        //        targetIdx = DraggedItem.Parent is null
+        //            ? TargetItem.Parent is not null
+        //            ? TargetItem.Value is null
+        //            ? TargetItem.Parent.GetItems()
+        //                .Select((item, index) => new { item, index })
+        //                .FirstOrDefault(x => Equals(x.item.Text, TargetItem.Text))?.index ?? -1
+        //            : TargetItem.Parent.GetItems()
+        //                .Select((item, index) => new { item, index })
+        //                .FirstOrDefault(x => Equals(x.item.Value, TargetItem.Value))?.index ?? -1
+        //            : TargetItem.Value is null
+        //                ? treeItems?
+        //                    .Select((item, index) => new { item, index })
+        //                    .FirstOrDefault(x => Equals(x.item.Text, TargetItem.Text))?.index ?? -1
+        //                : TargetItem.Parent is not null
+        //                ? TargetItem.Value is null
+        //                    ? TargetItem.Parent.GetItems()
+        //                        .Select((item, index) => new { item, index })
+        //                        .FirstOrDefault(x => Equals(x.item.Text, TargetItem.Text))?.index ?? -1
+        //                    : TargetItem.Parent.GetItems()
+        //                        .Select((item, index) => new { item, index })
+        //                        .FirstOrDefault(x => Equals(x.item.Value, TargetItem.Value))?.index ?? -1
+        //                    : TargetItem.Value is null
+        //                        ? treeItems?
+        //                            .Select((item, index) => new { item, index })
+        //                            .FirstOrDefault(x => Equals(x.item.Text, TargetItem.Text))?.index ?? -1
+        //                        : treeItems?
+        //                            .Select((item, index) => new { item, index })
+        //                            .FirstOrDefault(x => Equals(x.item.Value, TargetItem.Value))?.index ?? -1;
+
+        //        if (Position == DropPosition.After)
+        //        {
+        //            targetIdx += 1;
+        //        }
+
+        //        if (TargetItem.Parent is null) // parent is root
+        //        {
+        //            List<TreeItemData<T>> Items = [.. treeItems!];
+
+        //            if (targetIdx > treeItems.Count)
+        //            {
+        //                Items.Add(item!);
+        //            }
+        //            else
+        //            {
+        //                Items.Insert(targetIdx, item!);
+        //            }
+
+        //            treeItems = Items;
+        //        }
+        //        else
+        //        {
+        //            if (TargetItem.Parent.Parent is not null)
+        //            {
+        //                if (TargetItem.Parent.Value is not null)
+        //                {
+        //                    TreeItemData<T?>? newParent = TargetItem.Parent.Parent.Items?
+        //                        .FirstOrDefault(x => ReferenceEquals(x.Value, TargetItem.Parent.Value));
+
+        //                    if (targetIdx > newParent?.Children?.Count)
+        //                    {
+        //                        newParent.Children.Add(item!);
+        //                    }
+        //                    else
+        //                    {
+        //                        newParent?.Children?.Insert(targetIdx, item!);
+        //                    }
+        //                }
+        //                else if (TargetItem.Parent.Text is not null)
+        //                {
+        //                    TreeItemData<T?>? newParent = TargetItem.Parent.Parent.Items?
+        //                        .FirstOrDefault(x => Equals(x.Text, TargetItem.Parent.Text));
+
+        //                    if (targetIdx > newParent?.Children?.Count)
+        //                    {
+        //                        newParent.Children.Add(item!);
+        //                    }
+        //                    else
+        //                    {
+        //                        newParent?.Children?.Insert(targetIdx, item!);
+        //                    }
+        //                }    
+        //            }
+        //            else // parent.parent is root
+        //            {
+        //                if (TargetItem.Parent.Value is not null)
+        //                {
+        //                    TreeItemData<T>? newParent = treeItems?
+        //                        .FirstOrDefault(x => ReferenceEquals(x.Value, TargetItem.Parent.Value));
+
+        //                    if (targetIdx > newParent?.Children?.Count)
+        //                    {
+        //                        newParent.Children.Add(item!);
+        //                    }
+        //                    else
+        //                    {
+        //                        newParent?.Children?.Insert(targetIdx, item!);
+        //                    }
+        //                }
+        //                else if (TargetItem.Parent.Text is not null)
+        //                {
+        //                    TreeItemData<T>? newParent = treeItems?
+        //                        .FirstOrDefault(x => Equals(x.Text, TargetItem.Parent.Text));
+
+        //                    if (targetIdx > newParent?.Children?.Count)
+        //                    {
+        //                        newParent.Children.Add(item!);
+        //                    }
+        //                    else
+        //                    {
+        //                        newParent?.Children?.Insert(targetIdx, item!);
+        //                    }
+        //                }
+        //            }
+        //        }
+        //    }
+        //    else // Position == DropPosition.Child
+        //    {
+        //        if (TargetItem.Parent is null)
+        //        {
+        //            TreeItemData<T>? newParent = treeItems?
+        //                .FirstOrDefault(x => Equals(x.Value, TargetItem.Value));
+
+        //            if (newParent?.Children is null)
+        //            {
+        //                newParent!.Children = [item];
+        //            }
+        //            else
+        //            {
+        //                newParent.Children.Add(item!);
+        //            }
+        //        }
+        //        else
+        //        {
+        //            TreeItemData<T?>? newParent = TargetItem.Parent.Items?
+        //                .FirstOrDefault(x => Equals(x.Value, TargetItem.Value));
+
+        //            if (newParent?.Children is null)
+        //            {
+        //                newParent!.Children = [item];
+        //            }
+        //            else
+        //            {
+        //                newParent.Children.Add(item!);
+        //            }
+        //        }
+        //    }
+
+        //    return treeItems;
+        //}
     }
 }
